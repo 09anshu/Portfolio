@@ -17,7 +17,11 @@ export default function Contact() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!name.trim() || !email.trim() || !message.trim()) {
+        const trimmedName = name.trim();
+        const trimmedEmail = email.trim();
+        const trimmedMessage = message.trim();
+
+        if (!trimmedName || !trimmedEmail || !trimmedMessage) {
             setStatus('error');
             setStatusMessage('Please fill in all protocol fields (Name, Email, Message).');
             return;
@@ -27,40 +31,60 @@ export default function Contact() {
         setStatusMessage('Establishing link and transmitting data packet...');
         setMailtoFallback(null);
 
+        const targetEmail = siteConfig.social.email || 'anshuaman83@gmail.com';
+        const defaultMailto = `mailto:${targetEmail}?subject=${encodeURIComponent(
+            `[Portfolio Transmission] Message from ${trimmedName}`
+        )}&body=${encodeURIComponent(
+            `Name: ${trimmedName}\nEmail: ${trimmedEmail}\n\nMessage:\n${trimmedMessage}\n\n---\nSent from Portfolio Interface`
+        )}`;
+
         try {
-            const res = await fetch('/api/contact', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ name, email, message }),
-            });
+            let apiData: { success?: boolean; delivery?: string; mailtoUrl?: string; message?: string; error?: string } | null = null;
 
-            const data = await res.json();
+            try {
+                const res = await fetch('/api/contact', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ name: trimmedName, email: trimmedEmail, message: trimmedMessage }),
+                });
 
-            if (res.ok && data.success) {
-                setStatus('success');
-                setStatusMessage(data.message || 'Transmission successfully received!');
-                if (data.delivery === 'fallback' && data.mailtoUrl) {
-                    setMailtoFallback(data.mailtoUrl);
-                    // Launch mail client automatically for immediate transmission
-                    window.location.href = data.mailtoUrl;
+                const contentType = res.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    apiData = await res.json();
                 }
+            } catch (networkErr) {
+                console.warn('Direct API communication warning:', networkErr);
+            }
+
+            // Case 1: Backend SMTP dispatched the email silently
+            if (apiData && apiData.success && apiData.delivery === 'smtp') {
+                setStatus('success');
+                setStatusMessage(apiData.message || 'Transmission successfully routed directly to your inbox!');
                 setName('');
                 setEmail('');
                 setMessage('');
-            } else {
-                throw new Error(data.error || 'Server rejected transmission.');
+                return;
             }
-        } catch (err) {
+
+            // Case 2: Direct mailto dispatch to the target email
+            const activeMailto = (apiData && apiData.mailtoUrl) || defaultMailto;
+            setMailtoFallback(activeMailto);
+            setStatus('success');
+            setStatusMessage(`Protocol ready! Dispatching transmission to ${targetEmail}...`);
+
+            // Open email client with pre-filled fields
+            window.location.href = activeMailto;
+
+            setName('');
+            setEmail('');
+            setMessage('');
+        } catch {
             setStatus('error');
-            const mailto = `mailto:${siteConfig.social.email}?subject=${encodeURIComponent(
-                `Portfolio Transmission from ${name}`
-            )}&body=${encodeURIComponent(`Sender: ${name}\nEmail: ${email}\n\nMessage:\n${message}`)}`;
-            setMailtoFallback(mailto);
-            setStatusMessage(
-                err instanceof Error ? err.message : 'Transmission failed. You can send directly via your mail client below.'
-            );
+            setMailtoFallback(defaultMailto);
+            setStatusMessage(`Unable to transmit automatically. Click the link below to send directly to ${targetEmail}.`);
         }
     };
 
@@ -124,7 +148,7 @@ export default function Contact() {
                                         {status === 'idle' && <span className="text-gray-400">STANDBY // AWAITING DATA</span>}
                                         {status === 'transmitting' && <span className="text-yellow-400 animate-pulse">TRANSMITTING PACKET...</span>}
                                         {status === 'success' && <span className="text-primary font-bold">200 OK // DISPATCHED</span>}
-                                        {status === 'error' && <span className="text-red-400 font-bold">500 ERROR // RETRY READY</span>}
+                                        {status === 'error' && <span className="text-red-400 font-bold">ALERT // RETRY READY</span>}
                                     </div>
                                 </div>
                             </div>
